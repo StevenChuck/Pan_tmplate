@@ -222,7 +222,8 @@ class CrossMamba(nn.Module):
         pan = self.norm2(pan)
         global_f = self.cross_mamba(self.norm1(ms),extra_emb=self.norm2(pan))
         B,HW,C = global_f.shape
-        ms = global_f.transpose(1, 2).view(B, C, 128, 128)
+        H = W = int(math.sqrt(HW)
+        ms = global_f.transpose(1, 2).view(B, C, H, W) #  h5 是 16x16 -> 64x64 ,yaogan是 32x32 -> 128x128
         ms =  (self.dwconv(ms)+ms).flatten(2).transpose(1, 2)
         return ms,ms_resi
 class HinResBlock(nn.Module):
