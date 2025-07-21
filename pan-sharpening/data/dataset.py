@@ -14,6 +14,7 @@ from os.path import join
 from PIL import Image, ImageOps
 from random import randrange
 import torch.nn.functional as F
+import h5py
 
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP', 'tif', 'TIF'])
@@ -215,3 +216,49 @@ class Data_eval(data.Dataset):
 
     def __len__(self):
         return len(self.ms_image_filenames)
+
+class H5PanSharpeningDataset(data.Dataset):
+    def __init__(self, h5_path, cfg):
+        super().__init__()
+        self.h5_path = h5_path
+        self.cfg = cfg
+        self.normalize = cfg['data']['normalize']
+
+        with h5py.File(self.h5_path, 'r') as f:
+            self.length = f['ms'].shape[0]
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, index):
+        with h5py.File(self.h5_path, 'r') as f:
+            ms = f['ms'][index]
+            pan = f['pan'][index]
+            lms = f['lms'][index]
+            gt = f['gt'][index]
+
+        ms = torch.from_numpy(ms).float()
+        pan = torch.from_numpy(pan).float()
+        lms = torch.from_numpy(lms).float()
+        gt = torch.from_numpy(gt).float()
+
+        if self.normalize:
+            ms = ms * 2 - 1
+            pan = pan * 2 - 1
+            lms = lms * 2 - 1
+            gt = gt * 2 - 1
+        
+        #邓剑良里的h5索引 lms是上采样过的，我给他纠正过来
+        # train_gf2.h5
+        # ├── gt   (19809, 4, 64, 64)
+        # ├── lms  (19809, 4, 64, 64)
+        # ├── ms   (19809, 4, 16, 16)
+        # └── pan  (19809, 1, 64, 64)
+
+        # return ms, pan, bms, gt, str(index)
+        ms_image = gt
+        lms_image = ms
+        pan_image = pan
+        bms_image = lms
+
+        return ms_image, lms_image, pan_image, bms_image, str(index)
