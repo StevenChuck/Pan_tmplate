@@ -158,7 +158,8 @@ class Solver(BaseSolver):
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 500, 0.1,last_epoch=-1)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,1000,5e-8)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 20, 0)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,500,1,5e-8)
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,500,1,5e-8)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,self.nEpochs,1,5e-8)
         self.log_name = self.cfg['algorithm'] + '_' + str(self.cfg['data']['upsacle']) + '_' + 'GPU' + str(self.cfg['gpus'])  + '_' + str(datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H-%M-%S")) + '_' + str(self.cfg['data_dir_train'].replace(os.sep, '_'))
         # save log
         self.writer = SummaryWriter(self.cfg['log_dir']+ str(self.log_name))
