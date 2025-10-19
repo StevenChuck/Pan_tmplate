@@ -18,6 +18,7 @@ import argparse,os,sys
 sys.path.append(os.path.join(os.path.dirname(__file__), 'py-tra'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'model'))
 from metrics_runner import run_metrics
+from costs_runner import run_costs
 
 if __name__ == '__main__':
     
@@ -67,6 +68,8 @@ if __name__ == '__main__':
             path_predict = os.path.join(cfg['test']['save_dir'],'test')  # 输出预测结果的路径
         
             run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'] )
+            run_costs(cfg)
+
 
 
 
