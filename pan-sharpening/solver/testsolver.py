@@ -53,15 +53,77 @@ class Testsolver(BaseSolver):
     def __init__(self, cfg):
         super(Testsolver, self).__init__(cfg)
         
-        net_name = self.cfg['algorithm'].lower()
-        lib = importlib.import_module('model.' + net_name)
-        net = lib.Net
+        net_name = self.cfg['algorithm']
+        net = self._load_model(net_name)
+       # lib = importlib.import_module('model.' + net_name)
+        #net = lib.Net
         
         self.model = net(
             # num_channels=self.cfg['data']['n_colors'], 
             # base_filter=32,
             # args = self.cfg
         )
+    def _load_model(self, model_name):
+        """
+        智能模型加载函数
+        1. 首先检查 model 文件夹下是否有对应的子文件夹（使用原始算法名）
+        2. 如果有，从子文件夹中直接查找模型文件
+        3. 如果没有，直接从 model 文件夹加载对应的模型文件
+        """
+        model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model')
+        
+        # 首先尝试从子文件夹加载（使用原始算法名）
+        subdir_path = os.path.join(model_dir, model_name)
+        if os.path.isdir(subdir_path):
+            # 检查子文件夹中是否有直接的模型文件
+            possible_paths = []
+            for file in os.listdir(subdir_path):
+                if file.endswith('.py') and not file.startswith('__'):
+                    file_base = file[:-3]
+                    # 跳过非模型目录（如 configs, datasets, utils 等）
+                    if file_base not in ['models', 'configs', 'datasets', 'utils', '__init__']:
+                        possible_paths.append(f'model.{model_name}.{file_base}')
+            
+            # 也尝试直接用模型名称
+            possible_paths.insert(0, f'model.{model_name}.{model_name}')
+            
+            for import_path in possible_paths:
+                try:
+                    lib = importlib.import_module(import_path)
+                    # 查找 Net 类
+                    net = self._find_model_class(lib, model_name)
+                    if net is not None:
+                        print(f"成功从子文件夹加载模型: {import_path}")
+                        return net
+                except (ImportError, AttributeError, ModuleNotFoundError) as e:
+                    continue
+        
+        # 如果子文件夹加载失败，尝试直接从 model 文件夹加载
+        try:
+            lib = importlib.import_module('model.' + model_name)
+            net = self._find_model_class(lib, model_name)
+            if net is not None:
+                print(f"成功从 model 文件夹直接加载模型: model.{model_name}")
+                return net
+        except (ImportError, AttributeError, ModuleNotFoundError) as e:
+            pass
+        
+        # 如果都失败了，抛出错误
+        raise ImportError(f"无法找到模型 {model_name}。请检查：\n"
+                         f"1. model 文件夹下是否有 {model_name}.py 文件\n"
+                         f"2. model 文件夹下是否有对应的子文件夹（{model_name}/）\n"
+                         f"3. 子文件夹中是否有对应的模型文件")
+    
+    def _find_model_class(self, lib, model_name):
+        """
+        从模块中查找 Net 类
+        """
+        # 只查找 Net 类
+        if hasattr(lib, 'Net'):
+            return lib.Net
+        
+        # 如果没找到，返回 None
+        return None        
 
     def check(self):
         self.cuda = self.cfg['gpu_mode']
