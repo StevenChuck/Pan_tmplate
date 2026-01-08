@@ -34,7 +34,9 @@ class BaseSolver:
         self.val_dataset = get_data(cfg, cfg['data_dir_eval'])
         self.val_loader = DataLoader(self.val_dataset, cfg['data']['batch_size'], shuffle=False,
             num_workers=self.num_workers)
-        self.test_dataset = get_test_data(cfg, cfg['data_dir_eval'])
+        # 优先使用 data_dir_test，如果不存在则使用 data_dir_eval
+        test_data_path = cfg.get('data_dir_test') or cfg['data_dir_eval']
+        self.test_dataset = get_test_data(cfg, test_data_path)
         self.test_loader = DataLoader(self.test_dataset, shuffle=False, batch_size=4,
                                       num_workers=self.num_workers)
         self.records = {'Epoch': [], 'PSNR': [], 'SSIM': [], 'Loss': [],'QNR':[],'D_lamda':[],'D_s':[]}
