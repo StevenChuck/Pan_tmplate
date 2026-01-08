@@ -36,7 +36,9 @@ def get_data(cfg, mode):
 #     return Data(data_dir_ms, data_dir_pan, cfg, transform=transform(),data_dir_mask=data_dir_mask)
     
 def get_test_data(cfg, mode):
-    data_path = cfg['data_dir_eval']  # 或你也可以写 cfg['data']['data_dir_train']
+        # 优先使用 data_dir_test（如果存在），否则回退到 data_dir_eval
+    data_path = cfg.get('data_dir_test') or cfg['data_dir_eval']
+    
     if data_path.endswith('.h5'):
         return H5PanSharpeningDataset(data_path, cfg)
     else:
