@@ -1,4 +1,3 @@
-#这是有时间戳，带上具体数据集，Vggloss的
 #!/usr/bin/env python
 # coding=utf-8
 '''
@@ -107,7 +106,7 @@ def feature_save(tensor,name,i=0):
     #     inp = cv2.applyColorMap(np.uint8(inp * 255.0), cv2.COLORMAP_JET)
     #     cv2.imwrite(name + '/' + str(i) + '.png', inp)
         # cv2.imwrite(str(name)+'/'+str(i)+'.png',inp*255.0)import math
-import os, importlib, torch, shutil
+import os, importlib, torch, shutil, inspect
 from solver.basesolver import BaseSolver
 from utils.utils import maek_optimizer, make_loss, calculate_psnr, calculate_ssim, save_config, save_net_config,qnr,D_s,D_lambda,cpsnr,cssim,no_ref_evaluate
 import torch.backends.cudnn as cudnn
@@ -139,30 +138,31 @@ class Solver(BaseSolver):
         super(Solver, self).__init__(cfg)
         self.init_epoch = self.cfg['schedule']
         
-        # net_name = self.cfg['algorithm'].lower()
-        # lib = importlib.import_module('model.' + net_name)
-        # net = lib.Net
         # 使用智能模型加载函数
-        net_name = self.cfg['algorithm']
+        net_name = self.cfg['algorithm'].lower()
         net = self._load_model(net_name)
-
+        
         assert (self.cfg['data']['n_colors']==4)
+        
+        # 使用标准参数初始化
         self.model = net(
-            # dim=32, pan_dim=1, ms_dim=4, H=128, W=128, scale=4
-            # num_channels=self.cfg['data']['n_colors'], 
-            # base_filter=32,
-            # args = self.cfg
+            num_channels=self.cfg['data']['n_colors'], 
+            base_filter=32,
+            args=self.cfg
         )
         self.optimizer = maek_optimizer(self.cfg['schedule']['optimizer'], cfg, self.model.parameters())
         self.loss = make_loss(self.cfg['schedule']['loss'])
+        self.nEpochs = self.cfg['nEpochs']
         # self.ce = make_loss("L1")
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,200,0.5,last_epoch=-1) #torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,20,0)
-        self.vggloss = make_loss('VGG54')
+        #self.vggloss = make_loss('VGG54')
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 500, 0.1,last_epoch=-1)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,1000,5e-8)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 20, 0)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,500,1,5e-8)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,self.nEpochs,1,5e-8)
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 500, 0.1,last_epoch=-1)#MSDDN GF2
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 200, 0.1,last_epoch=-1)#MSDDN WV2
         self.log_name = self.cfg['algorithm'] + '_' + str(self.cfg['data']['upsacle']) + '_' + 'GPU' + str(self.cfg['gpus'])  + '_' + str(datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H-%M-%S")) + '_' + str(self.cfg['data_dir_train'].replace(os.sep, '_'))
         # save log
         self.writer = SummaryWriter(self.cfg['log_dir']+ str(self.log_name))
@@ -171,8 +171,68 @@ class Solver(BaseSolver):
         save_config(self.log_name, 'Train dataset has {} images and {} batches.'.format(len(self.train_dataset), len(self.train_loader)))
         save_config(self.log_name, 'Val dataset has {} images and {} batches.'.format(len(self.val_dataset), len(self.val_loader)))
         save_config(self.log_name, 'Model parameters: '+ str(sum(param.numel() for param in self.model.parameters())))
+
+    def _load_model(self, model_name):
+        """
+        智能模型加载函数
+        1. 首先检查 model 文件夹下是否有对应的子文件夹（使用原始算法名）
+        2. 如果有，从子文件夹中直接查找模型文件
+        3. 如果没有，直接从 model 文件夹加载对应的模型文件
+        """
+        model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model')
+        
+        # 首先尝试从子文件夹加载（使用原始算法名）
+        subdir_path = os.path.join(model_dir, model_name)
+        if os.path.isdir(subdir_path):
+            # 检查子文件夹中是否有直接的模型文件
+            possible_paths = []
+            for file in os.listdir(subdir_path):
+                if file.endswith('.py') and not file.startswith('__'):
+                    file_base = file[:-3]
+                    # 跳过非模型目录（如 configs, datasets, utils 等）
+                    if file_base not in ['models', 'configs', 'datasets', 'utils', '__init__']:
+                        possible_paths.append(f'model.{model_name}.{file_base}')
+            
+            # 也尝试直接用模型名称
+            possible_paths.insert(0, f'model.{model_name}.{model_name}')
+            
+            for import_path in possible_paths:
+                try:
+                    lib = importlib.import_module(import_path)
+                    # 查找 Net 类
+                    net = self._find_model_class(lib, model_name)
+                    if net is not None:
+                        print(f"成功从子文件夹加载模型: {import_path}")
+                        return net
+                except (ImportError, AttributeError, ModuleNotFoundError) as e:
+                    continue
+        
+        # 如果子文件夹加载失败，尝试直接从 model 文件夹加载
+        try:
+            lib = importlib.import_module('model.' + model_name)
+            net = self._find_model_class(lib, model_name)
+            if net is not None:
+                print(f"成功从 model 文件夹直接加载模型: model.{model_name}")
+                return net
+        except (ImportError, AttributeError, ModuleNotFoundError) as e:
+            pass
+        
+        # 如果都失败了，抛出错误
+        raise ImportError(f"无法找到模型 {model_name}。请检查：\n"
+                         f"1. model 文件夹下是否有 {model_name}.py 文件\n"
+                         f"2. model 文件夹下是否有对应的子文件夹（{model_name}/）\n"
+                         f"3. 子文件夹中是否有对应的模型文件")
     
-    
+    def _find_model_class(self, lib, model_name):
+        """
+        从模块中查找 Net 类
+        """
+        # 只查找 Net 类
+        if hasattr(lib, 'Net'):
+            return lib.Net
+        
+        # 如果没找到，返回 None
+        return None
 
     def train(self): 
         with tqdm(total=len(self.train_loader), miniters=1,
@@ -251,12 +311,37 @@ class Solver(BaseSolver):
                         pan = (pan_image[c, ...].cpu().numpy().transpose((1, 2, 0)) + 1) * 127.5
                         l_ms = (lms_image[c, ...].cpu().numpy().transpose((1, 2, 0)) + 1) * 127.5
                         f_img  =(fake_img[c, ...].cpu().numpy().transpose((1, 2, 0)) + 1) * 127.5
+                    
+                    # # 裁剪到 [0, 255] 范围并处理 NaN/Inf
+                    # predict_y = np.clip(predict_y, 0, 255)
+                    # ground_truth = np.clip(ground_truth, 0, 255)
+                    # pan = np.clip(pan, 0, 255)
+                    # l_ms = np.clip(l_ms, 0, 255)
+                    # f_img = np.clip(f_img, 0, 255)
+                    
+                    # # 处理 NaN 和 Inf
+                    # predict_y = np.nan_to_num(predict_y, nan=0.0, posinf=255.0, neginf=0.0)
+                    # ground_truth = np.nan_to_num(ground_truth, nan=0.0, posinf=255.0, neginf=0.0)
+                    # pan = np.nan_to_num(pan, nan=0.0, posinf=255.0, neginf=0.0)
+                    # l_ms = np.nan_to_num(l_ms, nan=0.0, posinf=255.0, neginf=0.0)
+                    # f_img = np.nan_to_num(f_img, nan=0.0, posinf=255.0, neginf=0.0)
+                    
                     psnr = cpsnr(predict_y, ground_truth)
                     # psnr = calculate_psnr(predict_y, ground_truth, 255)
                     # ssim = calculate_ssim(predict_y, ground_truth, 255)
                     ssim = cssim(predict_y,ground_truth,255)
-                    l_ms = np.uint8(l_ms)
-                    pan = np.uint8(pan)
+                    
+                    # 转换为 uint8 并确保维度正确
+                    l_ms = np.uint8(np.clip(l_ms, 0, 255))
+                    # pan 需要是 3D (H, W, 1)
+                    if pan.ndim == 2:
+                        pan = pan[:, :, np.newaxis]
+                    pan = np.uint8(np.clip(pan, 0, 255))
+                    # f_img 需要是 3D (H, W, C)
+                    if f_img.ndim == 2:
+                        f_img = f_img[:, :, np.newaxis]
+                    f_img = np.uint8(np.clip(f_img, 0, 255))
+                    
                     c_D_lambda, c_D_s, QNR = no_ref_evaluate(f_img,pan,l_ms)
                     # c_D_s = D_s(f_img,l_ms,pan)
                     # c_D_lambda = D_lambda(f_img,l_ms)
@@ -310,15 +395,15 @@ class Solver(BaseSolver):
 
             torch.cuda.set_device(self.gpu_ids[0]) 
             self.loss = self.loss.cuda(self.gpu_ids[0])
-            self.vggloss = self.vggloss.cuda(self.gpu_ids[0])
+            #self.vggloss = self.vggloss.cuda(self.gpu_ids[0])
             self.model = self.model.cuda(self.gpu_ids[0])
             self.model = torch.nn.DataParallel(self.model, device_ids=self.gpu_ids) 
 
     def check_pretrained(self):
         checkpoint = os.path.join(self.cfg['pretrain']['pre_folder'], self.cfg['pretrain']['pre_sr'])
         if os.path.exists(checkpoint):
-            self.model.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage)['net'],strict=False)
-            self.epoch = torch.load(checkpoint, map_location=lambda storage, loc: storage)['epoch']
+            self.model.load_state_dict(torch.load(checkpoint, map_location=lambda storage, loc: storage, weights_only=False)['net'],strict=False)
+            self.epoch = torch.load(checkpoint, map_location=lambda storage, loc: storage, weights_only=False)['epoch']
             if self.epoch > self.nEpochs:
                 raise Exception("Pretrain epoch must less than the max epoch!")
         else:
@@ -348,76 +433,15 @@ class Solver(BaseSolver):
             if self.records['D_s'] !=[] and self.records['D_s'][-1]==np.array(self.records['D_s']).min():
                 shutil.copy(os.path.join(self.cfg['checkpoint'] + '/' + str(self.log_name), 'latest.pth'),
                             os.path.join(self.cfg['checkpoint'] + '/' + str(self.log_name), 'bestD_s.pth'))
-    def _load_model(self, model_name):
-        """
-        智能模型加载函数
-        1. 首先检查 model 文件夹下是否有对应的子文件夹（使用原始算法名）
-        2. 如果有，从子文件夹中直接查找模型文件
-        3. 如果没有，直接从 model 文件夹加载对应的模型文件
-        """
-        model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model')
-        
-        # 首先尝试从子文件夹加载（使用原始算法名）
-        subdir_path = os.path.join(model_dir, model_name)
-        if os.path.isdir(subdir_path):
-            # 检查子文件夹中是否有直接的模型文件
-            possible_paths = []
-            for file in os.listdir(subdir_path):
-                if file.endswith('.py') and not file.startswith('__'):
-                    file_base = file[:-3]
-                    # 跳过非模型目录（如 configs, datasets, utils 等）
-                    if file_base not in ['models', 'configs', 'datasets', 'utils', '__init__']:
-                        possible_paths.append(f'model.{model_name}.{file_base}')
-            
-            # 也尝试直接用模型名称
-            possible_paths.insert(0, f'model.{model_name}.{model_name}')
-            
-            for import_path in possible_paths:
-                try:
-                    lib = importlib.import_module(import_path)
-                    # 查找 Net 类
-                    net = self._find_model_class(lib, model_name)
-                    if net is not None:
-                        print(f"成功从子文件夹加载模型: {import_path}")
-                        return net
-                except (ImportError, AttributeError, ModuleNotFoundError) as e:
-                    continue
-        
-        # 如果子文件夹加载失败，尝试直接从 model 文件夹加载
-        try:
-            lib = importlib.import_module('model.' + model_name)
-            net = self._find_model_class(lib, model_name)
-            if net is not None:
-                print(f"成功从 model 文件夹直接加载模型: model.{model_name}")
-                return net
-        except (ImportError, AttributeError, ModuleNotFoundError) as e:
-            pass
-        
-        # 如果都失败了，抛出错误
-        raise ImportError(f"无法找到模型 {model_name}。请检查：\n"
-                         f"1. model 文件夹下是否有 {model_name}.py 文件\n"
-                         f"2. model 文件夹下是否有对应的子文件夹（{model_name}/）\n"
-                         f"3. 子文件夹中是否有对应的模型文件")
-    
-    def _find_model_class(self, lib, model_name):
-        """
-        从模块中查找 Net 类
-        """
-        # 只查找 Net 类
-        if hasattr(lib, 'Net'):
-            return lib.Net
-        
-        # 如果没找到，返回 None
-        return None
-        
     def run(self):
         self.check_gpu()
         if self.cfg['pretrain']['pretrained']:
             self.check_pretrained()
+        
         try:
             while self.epoch <= self.nEpochs:
                 self.train()
-                if self.epoch % 5 == 0:
+                if self.epoch % 1 == 0:
                     self.eval()
                     self.save_checkpoint(epoch=self.epoch)
                 self.epoch += 1
