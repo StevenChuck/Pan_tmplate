@@ -357,11 +357,10 @@ def ref_evaluate(pred, gt):
 
 def no_ref_evaluate(pred, pan, hs):
     # no reference metrics
-    c_D_lambda = D_lambda(pred, hs)
-    c_D_s = D_s(pred, hs, pan)
-    c_qnr = qnr(pred, hs, pan)
+    c_D_lambda = D_lambda(pred, hs, block_size=hs.shape[0])
+    c_D_s = D_s(pred, hs, pan, block_size=hs.shape[0])
+    c_qnr = qnr(pred, hs, pan, block_size=hs.shape[0])
     return [c_D_lambda, c_D_s, c_qnr]
-
 
 
 
