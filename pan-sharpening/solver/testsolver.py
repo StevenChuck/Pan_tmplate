@@ -167,6 +167,8 @@ class Testsolver(BaseSolver):
             t0 = time.time()
             with torch.no_grad():
                 prediction = self.model(lms_image, bms_image, pan_image)
+                if isinstance(prediction, (list, tuple)):
+                     prediction = prediction[0]
                 
             # exit(0)
             t1 = time.time()
