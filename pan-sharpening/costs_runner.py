@@ -7,7 +7,7 @@ from utils.config import get_config
 
 
 # def run_costs(path_ms, path_pan, path_predict, save_path=None, cfg=None, device='cuda'):
-def run_costs(cfg):
+def run_costs(cfg, writer=None):
     """
     一体化运行指标计算 + 模型复杂度评估
     包含 FLOPs / Params / Memory / 推理时间 等
@@ -106,12 +106,20 @@ def run_costs(cfg):
         # f.write(f"PAN Path: {path_pan}\n")
         f.write(f"Predict Path: {path_predict}\n")
     print(f"✅ Costs saved to: {save_path}")
-    
+   
+    # 返回成本指标字典，用于 HPARAMS
+    costs_dict = {
+        'Costs/Memory_GB': mem_used,
+        'Costs/FLOPs_G': flops,
+        'Costs/Params_M': params,
+        'Costs/Time_ms': avg_time_ms
+    }
     return {
         'model': algorithm,
         'memory_GB': mem_used,
         'flops_G': flops,
         'params_M': params,
         'time_ms': avg_time_ms,
-        'save_path': save_path
+        'save_path': save_path,
+        'costs_dict': costs_dict
     }
