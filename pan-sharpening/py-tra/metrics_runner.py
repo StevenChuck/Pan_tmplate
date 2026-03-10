@@ -159,7 +159,7 @@ def _evaluate_from_h5(h5_path, path_predict, scale_resolution=1.0):
     return cal(list_ref, list_noref)
 
 
-def run_metrics(path_ms, path_pan, path_predict, save_path='', cfg=None):
+def run_metrics(path_ms, path_pan, path_predict, save_path='', cfg=None, writer=None):
     metrics_path = os.path.join(save_path, 'metrics_result.txt')
     
     # 从配置中获取 scale_resolution，默认为 1.0（不缩放）
@@ -192,4 +192,17 @@ def run_metrics(path_ms, path_pan, path_predict, save_path='', cfg=None):
                 f.write(f"{i}: {[round(j, 4) for j in no_ref_results[i]]}\n")
 
     print(f"✔ 指标结果已保存至：{metrics_path}")
+    # 返回指标字典，用于 HPARAMS
+    metrics_dict = {
+        'Test/PSNR': temp_ref_results1[0],
+        'Test/SSIM': temp_ref_results1[1],
+        'Test/SAM': temp_ref_results1[2],
+        'Test/ERGAS': temp_ref_results1[3],
+        'Test/SCC': temp_ref_results1[4],
+        'Test/Q': temp_ref_results1[5],
+        'Test/D_lambda': temp_no_ref_results1[0],
+        'Test/D_s': temp_no_ref_results1[1],
+        'Test/QNR': temp_no_ref_results1[2]
+    }
+    return metrics_dict
 
