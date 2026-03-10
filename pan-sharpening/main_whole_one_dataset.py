@@ -48,5 +48,23 @@ if __name__ == '__main__':
     path_pan = os.path.join(cfg['data_dir_eval'],'pan')    
     path_predict = os.path.join(cfg['test']['save_dir'],'test')  # 输出预测结果的路径
 
-    run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'] )
+    
+    metrics_dict = run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'], cfg=cfg, writer=solver.writer )
+    costs_result = run_costs(cfg, writer=solver.writer)
+            
+    # 收集超参数
+    hparams = {
+        'algorithm': cfg['algorithm'],
+        'nEpochs': cfg['nEpochs'],
+        'batch_size': cfg['data']['batch_size'],
+        'upsacle': cfg['data']['upsacle'],
+        'seed': cfg['seed']
+    }
+            
+    # 合并指标
+    metrics = {**metrics_dict, **costs_result['costs_dict']}
+            
+    # 写入 HPARAMS 用于对比不同实验
+    solver.writer.add_hparams(hparams, metrics)
+    print("✔ HPARAMS 已写入 TensorBoard，用于实验对比")
     
