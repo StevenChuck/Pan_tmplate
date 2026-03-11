@@ -67,8 +67,8 @@ if __name__ == '__main__':
             path_pan = os.path.join(cfg['data_dir_eval'],'pan')    
             path_predict = os.path.join(cfg['test']['save_dir'],'test')  # 输出预测结果的路径
         
-            run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'] )
-            run_costs(cfg)
+            # run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'] )
+            # run_costs(cfg)
             metrics_dict = run_metrics(path_ms, path_pan, path_predict,save_path =cfg['test']['save_dir'], cfg=cfg, writer=solver.writer )
             costs_result = run_costs(cfg, writer=solver.writer)
             
