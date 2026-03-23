@@ -113,10 +113,10 @@ from utils.utils import maek_optimizer, make_loss, calculate_psnr, calculate_ssi
 def extract_dataset_name(data_dir):
     """从data_dir路径中提取数据集名称（如WV3, GF2, QB, WV2），否则返回原始路径"""
     patterns = {
-        'WV3': r'(?:^|_)(WV3)(?:_|$)',
-        'WV2': r'(?:^|_)(WV2)(?:_|$)',
-        'GF2': r'(?:^|_)(GF2)(?:_|$)',
-        'QB':  r'(?:^|_)(QB)(?:_|$)'
+        'WV3': r'(?:^|_/[])(WV3)(?:_/[]$)',
+        'WV2': r'(?:^|_/[])(WV2)(?:_/[]|$)',
+        'GF2': r'(?:^|_/[])(GF2)(?:_/[]|$)',
+        'QB':  r'(?:^|_/[])(QB)(?:_/[]|$)'
     }
     for name, pattern in patterns.items():
         if re.search(pattern, data_dir):
