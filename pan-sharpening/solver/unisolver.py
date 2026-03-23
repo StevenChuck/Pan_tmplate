@@ -106,9 +106,23 @@ def feature_save(tensor,name,i=0):
     #     inp = cv2.applyColorMap(np.uint8(inp * 255.0), cv2.COLORMAP_JET)
     #     cv2.imwrite(name + '/' + str(i) + '.png', inp)
         # cv2.imwrite(str(name)+'/'+str(i)+'.png',inp*255.0)import math
-import os, importlib, torch, shutil, inspect
+import os, importlib, torch, shutil, inspect, re
 from solver.basesolver import BaseSolver
 from utils.utils import maek_optimizer, make_loss, calculate_psnr, calculate_ssim, save_config, save_net_config,qnr,D_s,D_lambda,cpsnr,cssim,no_ref_evaluate
+
+def extract_dataset_name(data_dir):
+    """从data_dir路径中提取数据集名称（如WV3, GF2, QB, WV2），否则返回原始路径"""
+    patterns = {
+        'WV3': r'(?:^|_)(WV3)(?:_|$)',
+        'WV2': r'(?:^|_)(WV2)(?:_|$)',
+        'GF2': r'(?:^|_)(GF2)(?:_|$)',
+        'QB':  r'(?:^|_)(QB)(?:_|$)'
+    }
+    for name, pattern in patterns.items():
+        if re.search(pattern, data_dir):
+            return name
+    # 如果不是已知数据集，返回原始路径（用_替换分隔符）
+    return data_dir.replace(os.sep, '_')
 import torch.backends.cudnn as cudnn
 from tqdm import tqdm
 import numpy as np
@@ -139,7 +153,7 @@ class Solver(BaseSolver):
         self.init_epoch = self.cfg['schedule']
         
         # 使用智能模型加载函数
-        net_name = self.cfg['algorithm'].lower()
+        net_name = self.cfg['algorithm']
         net = self._load_model(net_name)
         
         assert (self.cfg['data']['n_colors']==4)
@@ -163,7 +177,7 @@ class Solver(BaseSolver):
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,self.nEpochs,1,5e-8)
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 500, 0.1,last_epoch=-1)#MSDDN GF2
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 200, 0.1,last_epoch=-1)#MSDDN WV2
-        self.log_name = self.cfg['algorithm'] + '_' + str(self.cfg['data']['upsacle']) + '_' + 'GPU' + str(self.cfg['gpus'])  + '_' + str(datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H-%M-%S")) + '_' + str(self.cfg['data_dir_train'].replace(os.sep, '_'))
+        self.log_name = self.cfg['algorithm'] + '_' + str(self.cfg['data']['upsacle']) + '_' + 'GPU' + str(self.cfg['gpus'])  + '_' + str(datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H-%M-%S")) + '_' + extract_dataset_name(self.cfg['data_dir_train'])
         # save log
         self.writer = SummaryWriter(self.cfg['log_dir']+ str(self.log_name))
         save_net_config(self.log_name, self.model)
@@ -241,6 +255,8 @@ class Solver(BaseSolver):
             for iteration, batch in enumerate(self.train_loader, 1):
                 ms_image, lms_image, pan_image, bms_image, file = Variable(batch[0]), Variable(batch[1]), Variable(
                     batch[2]), Variable(batch[3]), (batch[4])
+                
+          
 #                 print(Variable(batch[0]))
 
                 if self.cuda:
@@ -249,7 +265,24 @@ class Solver(BaseSolver):
                 self.optimizer.zero_grad()
                 self.model.train()
 #                 print(lms_image.shape,bms_image.shape,pan_image.shape)
-                y = self.model(lms_image, bms_image, pan_image)
+
+                # 支持模型返回 (output, debug_dict) 的形式，将 debug 写入 TensorBoard
+                output = self.model(lms_image, bms_image, pan_image)
+                if isinstance(output, tuple) and len(output) == 2:
+                    y, debug = output
+                    # 以全局 step 作为 x 轴，避免不同 epoch 覆盖
+                    global_step = (self.epoch - 1) * len(self.train_loader) + iteration
+                    if isinstance(debug, dict):
+                        for k, v in debug.items():
+                            try:
+                                # v 是标量 Tensor
+                                self.writer.add_scalar(f'debug/{k}', v.item(), global_step)
+                            except Exception:
+                                # 避免因为某个值不可写直接中断训练
+                                continue
+                else:
+                    y = output
+
                 loss = (self.loss(y, ms_image)) / (self.cfg['data']['batch_size'] * 2)
                 if self.cfg['schedule']['use_YCbCr']:
                     y_vgg = torch.unsqueeze(y[:,3,:,:], 1)
@@ -271,9 +304,9 @@ class Solver(BaseSolver):
             torch.cuda.empty_cache() 
             self.scheduler.step()
             self.records['Loss'].append(epoch_loss / len(self.train_loader))
-            self.writer.add_image('image1', ms_image[0], self.epoch)
-            self.writer.add_image('image2', y[0], self.epoch)
-            self.writer.add_image('image3', pan_image[0], self.epoch)
+            self.writer.add_image('image1_MS', ms_image[0], self.epoch)
+            self.writer.add_image('image2_Output', y[0], self.epoch)
+            self.writer.add_image('image3_Pan', pan_image[0], self.epoch)
             save_config(self.log_name, 'Initial Training Epoch {}: Loss={:.4f}'.format(self.epoch, self.records['Loss'][-1]))
             self.writer.add_scalar('Loss_epoch', self.records['Loss'][-1], self.epoch)
     def eval(self):
@@ -289,8 +322,12 @@ class Solver(BaseSolver):
 
                 self.model.eval()
                 with torch.no_grad():
-                    y = self.model(lms_image, bms_image, pan_image)
-                    # y = self.model(lms_image, bms_image, pan_image)
+                    output = self.model(lms_image, bms_image, pan_image)
+                    # 模型在训练阶段可能返回 (y, debug)，这里统一兼容
+                    if isinstance(output, tuple) and len(output) == 2:
+                        y, _ = output
+                    else:
+                        y = output
 
                     loss = self.loss(y, ms_image)
 
